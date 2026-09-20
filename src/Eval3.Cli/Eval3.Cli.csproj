@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Eval3Cli</AssemblyName>
+    <PackageId>Eval3.Cli</PackageId>
+    <RootNamespace>Eval3.Cli</RootNamespace>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Eval3\Eval3.csproj" />
+  </ItemGroup>
+
+</Project>

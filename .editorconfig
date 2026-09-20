@@ -1,0 +1,39 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+
+[*.{cs,vb}]
+dotnet_sort_system_directives_first = true
+
+[*.cs]
+
+# CS0108: 成员隐藏继承的成员；缺少关键字 new
+dotnet_diagnostic.CS0108.severity = none
+dotnet_diagnostic.IDE0290.severity = none
+dotnet_diagnostic.CA1031.severity = none
+dotnet_diagnostic.CA1305.severity = none
+dotnet_diagnostic.CA1062.severity = none
+dotnet_diagnostic.CA1819.severity = none
+dotnet_diagnostic.CA2225.severity = none
+dotnet_diagnostic.CA1002.severity = none
+dotnet_diagnostic.IDE1006.severity = none
+
+# CA1720 / CA1710：刻意沿用历史版本的类型名与命名（EvalType.String、EvalType.Object、
+# MathLibrary.Int、DictionaryVariableBag 对应旧版 iVariableBag），保持迁移时可读性
+dotnet_diagnostic.CA1720.severity = none
+dotnet_diagnostic.CA1710.severity = none
+
+# 测试项目的规则：测试用函数库必须保留实例成员 / 公开字段才能覆盖实例调用与字段访问分支
+[tests/**/*.cs]
+dotnet_diagnostic.CA1822.severity = none
+dotnet_diagnostic.CA1051.severity = none
+dotnet_diagnostic.CA1861.severity = none
+
+[legacy/**]
+generated_code = true

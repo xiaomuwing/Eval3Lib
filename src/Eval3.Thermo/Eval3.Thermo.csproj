@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Eval3.Thermo</AssemblyName>
+    <RootNamespace>Eval3.Thermo</RootNamespace>
+    <OutputType>Library</OutputType>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Description>水和水蒸汽物性函数库（IAPWS-IF97，纯托管实现，无原生依赖），可作为 Eval3 公式的函数库使用</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 纯托管 IAPWS-IF97 实现（MIT）：无原生依赖，任意 CPU / 操作系统均可运行。 -->
+    <PackageReference Include="XSteamNET" Version="1.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Eval3\Eval3.csproj" />
+  </ItemGroup>
+
+</Project>

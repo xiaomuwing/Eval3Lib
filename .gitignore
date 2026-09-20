@@ -1,0 +1,9 @@
+# 生成输出
+bin/
+obj/
+.vs/
+.dist/
+*.user
+*.suo
+TestResults/
+artifacts/

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Eval3</AssemblyName>
+    <RootNamespace>Eval3</RootNamespace>
+    <OutputType>Library</OutputType>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <TieredPGO>true</TieredPGO>
+    <TieredCompilation>true</TieredCompilation>
+    <DebugType>portable</DebugType>
+    <Description>.NET 10 高性能公式计算组件（词法分析 / 递归下降语法分析 / 表达式树求值）</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 表达式树编译后端：直接生成 IL，编译耗时约为 Expression.Compile() 的 1/10 ~ 1/40。 -->
+    <PackageReference Include="FastExpressionCompiler" Version="5.4.1" />
+  </ItemGroup>
+
+</Project>

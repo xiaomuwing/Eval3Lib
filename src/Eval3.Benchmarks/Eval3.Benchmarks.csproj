@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Eval3Benchmarks</AssemblyName>
+    <RootNamespace>Eval3.Benchmarks</RootNamespace>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Eval3\Eval3.csproj" />
+    <ProjectReference Include="..\Eval3.Thermo\Eval3.Thermo.csproj" />
+  </ItemGroup>
+
+</Project>
