@@ -367,17 +367,17 @@ internal sealed class Tokenizer
             throw _parser.Error("日期常量缺少结尾的 #（应形如 #2024/01/31#）", start);
         }
 
-        string text = _text.Substring(start + 1, close - start - 1).Trim();
+        ReadOnlySpan<char> text = _text.AsSpan(start + 1, close - start - 1).Trim();
         if (!TryParseDate(text, out DateTime date))
         {
-            throw _parser.Error($"无效的日期 {text}，应形如 #2024/01/31#", start, close - start + 1);
+            throw _parser.Error($"无效的日期 {new string(text)}，应形如 #2024/01/31#", start, close - start + 1);
         }
 
         _pos = close + 1;
         return new Token(TokenType.ValueDate, start, close - start + 1, date: date);
     }
 
-    private static bool TryParseDate(string text, out DateTime date)
+    private static bool TryParseDate(ReadOnlySpan<char> text, out DateTime date)
     {
         if (DateTime.TryParse(text, CultureInfo.CurrentCulture, DateTimeStyles.None, out date))
         {

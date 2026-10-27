@@ -90,11 +90,6 @@ internal sealed class MemberResolver
                     score += element;
                 }
 
-                if (argumentCount <= i)
-                {
-                    score += 10;
-                }
-
                 continue;
             }
 
@@ -117,6 +112,13 @@ internal sealed class MemberResolver
 
                 score += 10;
             }
+        }
+
+        // 参数个数完全匹配的定长重载优先于 params 重载（C# 重载决议的同款规则），
+        // 否则 Sum(1,2,3) 会命中 params 版本并产生一次数组分配。
+        if (!paramsArray && argumentCount == parameters.Length)
+        {
+            score++;
         }
 
         return score;

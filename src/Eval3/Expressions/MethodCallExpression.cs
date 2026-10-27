@@ -44,6 +44,12 @@ public sealed class MethodCallExpression : Expression
     /// <summary>被调用的成员。</summary>
     public MemberInfo Member { get; }
 
+    /// <summary>调用目标的表达式（实例成员链式访问时非空）。</summary>
+    internal Expression? TargetExpression => _targetExpression;
+
+    /// <summary>调用目标的常量对象（静态库为 <see cref="Type"/>，实例库为实例）。</summary>
+    internal object? TargetObject => _targetObject;
+
     /// <summary>参数表达式。</summary>
     public IReadOnlyList<Expression> Arguments => _arguments;
 
@@ -111,6 +117,7 @@ public sealed class MethodCallExpression : Expression
 
         if (resultEvalType != EvalType.Object
             && resultEvalType != EvalType.Unknown
+            && resultType != typeof(decimal)          // decimal 是 Number 的合法表示，不能规范化成 double
             && resultType != TypeTable.GetSystemType(resultEvalType))
         {
             return new ConvertExpression(node, resultEvalType, source);
@@ -138,7 +145,13 @@ public sealed class MethodCallExpression : Expression
         evaluate = null!;
         try
         {
-            return TryBuildNumericCore(out evaluate);
+            if (!TryEmitNumericCore(emitChild: null, emitVariables: false, out SysExpr? body))
+            {
+                return false;
+            }
+
+            evaluate = ExpressionTreeCompiler.Compile(SysExpr.Lambda<Func<double>>(body!));
+            return true;
         }
 #pragma warning disable CA1031
         catch (Exception)
@@ -149,9 +162,30 @@ public sealed class MethodCallExpression : Expression
         }
     }
 
-    private bool TryBuildNumericCore(out Func<double> evaluate)
+    /// <summary>
+    /// 把成员调用发射成 <see cref="SysExpr"/>（供整树数值编译内联使用）。
+    /// <paramref name="emitChild"/> 非空时，实参直接内联进调用表达式；
+    /// 为空时保持旧行为（变量走 <c>RequireNumeric</c>，其余走已编译的数值委托）。
+    /// </summary>
+    internal bool TryEmitNumeric(Func<Eval3.Expression, SysExpr?>? emitChild, bool emitVariables, out SysExpr? body)
     {
-        evaluate = null!;
+        body = null;
+        try
+        {
+            return TryEmitNumericCore(emitChild, emitVariables, out body);
+        }
+#pragma warning disable CA1031
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            body = null;
+            return false;
+        }
+    }
+
+    private bool TryEmitNumericCore(Func<Eval3.Expression, SysExpr?>? emitChild, bool emitVariables, out SysExpr? body)
+    {
+        body = null;
 
         // 调用目标本身是表达式（如 obj.Sub.Value）时不在本节点编译，退回逐节点求值。
         if (_targetExpression is not null
@@ -185,7 +219,7 @@ public sealed class MethodCallExpression : Expression
         var callArguments = new List<SysExpr>(parameters.Length);
         for (int i = 0; i < provided; i++)
         {
-            if (!TryBuildArgument(_arguments[i], parameters[i].ParameterType, out SysExpr? argument))
+            if (!TryBuildArgument(_arguments[i], parameters[i].ParameterType, emitChild, emitVariables, out SysExpr? argument))
             {
                 return false;
             }
@@ -198,7 +232,7 @@ public sealed class MethodCallExpression : Expression
             var elements = new List<SysExpr>(Math.Max(0, _arguments.Length - fixedCount));
             for (int i = fixedCount; i < _arguments.Length; i++)
             {
-                if (!TryBuildArgument(_arguments[i], paramsElementType!, out SysExpr? element))
+                if (!TryBuildArgument(_arguments[i], paramsElementType!, emitChild, emitVariables, out SysExpr? element))
                 {
                     return false;
                 }
@@ -235,7 +269,7 @@ public sealed class MethodCallExpression : Expression
             return false;
         }
 
-        evaluate = ExpressionTreeCompiler.Compile(SysExpr.Lambda<Func<double>>(convertResult(call)));
+        body = convertResult(call);
         return true;
     }
 
@@ -243,6 +277,8 @@ public sealed class MethodCallExpression : Expression
     private static bool TryBuildArgument(
         Eval3.Expression argument,
         Type parameterType,
+        Func<Eval3.Expression, SysExpr?>? emitChild,
+        bool emitVariables,
         [NotNullWhen(true)] out SysExpr? value)
     {
         value = null;
@@ -251,16 +287,34 @@ public sealed class MethodCallExpression : Expression
         // 实参本身已是 double，或形参就是 double。其余组合（如 decimal 实参 → decimal 形参）
         // 会先经过一次 double 往返而丢精度，必须留在逐节点求值路径上。
         if ((argument.SystemType != typeof(double) && parameterType != typeof(double))
-            || !argument.TryBuildNumeric(out Func<double> compiled)
             || !NumericConversion.TryGetParameterConverter(parameterType, out Func<SysExpr, SysExpr>? convert))
         {
             return false;
         }
 
-        // 变量可能为 null：用一次性类型检查保持与反射调用一致的异常行为（不产生装箱，值本身已装箱）。
-        SysExpr raw = argument is VariableExpression variable
-            ? SysExpr.Call(RequireNumericMethod, SysExpr.Constant(variable.Variable, typeof(ITypedValue)))
-            : SysExpr.Invoke(SysExpr.Constant(compiled, typeof(Func<double>)));
+        SysExpr? raw;
+        if (emitChild is not null && (emitVariables || argument is not VariableExpression))
+        {
+            raw = emitChild(argument);
+            if (raw is null)
+            {
+                return false;
+            }
+        }
+        else if (argument is VariableExpression variable)
+        {
+            // 变量可能为 null：用一次性类型检查保持与反射调用一致的异常行为（不产生装箱，值本身已装箱）。
+            raw = SysExpr.Call(RequireNumericMethod, SysExpr.Constant(variable.Variable, typeof(ITypedValue)));
+        }
+        else
+        {
+            if (!argument.TryBuildNumeric(out Func<double> compiled))
+            {
+                return false;
+            }
+
+            raw = SysExpr.Invoke(SysExpr.Constant(compiled, typeof(Func<double>)));
+        }
 
         value = convert(raw);
         return true;

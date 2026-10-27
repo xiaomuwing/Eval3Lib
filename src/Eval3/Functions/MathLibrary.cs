@@ -6,6 +6,7 @@ namespace Eval3.Functions;
 /// 数学函数库（静态库，通过 <c>evaluator.AddEnvironmentFunctions(typeof(MathLibrary))</c> 注册）。
 /// </summary>
 [Description("数学函数库")]
+[Pure]
 public static class MathLibrary
 {
     /// <summary>圆周率。</summary>
@@ -97,16 +98,55 @@ public static class MathLibrary
 
     /// <summary>求和。</summary>
     [Description("求和：Sum(1, 2, 3) = 6")]
-    public static double Sum(params double[] values)
+    public static double Sum(params double[] values) => CompensatedSum(values.AsSpan());
+
+    /// <summary>Neumaier 补偿求和：大数组 / 量级差异大时显著降低累加误差。</summary>
+    internal static double CompensatedSum(ReadOnlySpan<double> values)
     {
-        double total = 0d;
-        for (int i = 0; i < values.Length; i++)
+        double sum = 0d;
+        double compensation = 0d;
+        foreach (double value in values)
         {
-            total += values[i];
+            double next = sum + value;
+            if (Math.Abs(sum) >= Math.Abs(value))
+            {
+                compensation += (sum - next) + value;
+            }
+            else
+            {
+                compensation += (value - next) + sum;
+            }
+
+            sum = next;
         }
 
-        return total;
+        return sum + compensation;
     }
+
+    // 参数个数固定的重载：让常见 1~6 参数调用避开 params 数组分配（实验分支）。
+    /// <summary>求和（单参数）。</summary>
+    [Description("求和（单参数）")]
+    public static double Sum(double a) => a;
+
+    /// <summary>求和（2 参数）。</summary>
+    [Description("求和（2 参数）")]
+    public static double Sum(double a, double b) => a + b;
+
+    /// <summary>求和（3 参数）。</summary>
+    [Description("求和（3 参数）")]
+    public static double Sum(double a, double b, double c) => a + b + c;
+
+    /// <summary>求和（4 参数）。</summary>
+    [Description("求和（4 参数）")]
+    public static double Sum(double a, double b, double c, double d) => a + b + c + d;
+
+    /// <summary>求和（5 参数）。</summary>
+    [Description("求和（5 参数）")]
+    public static double Sum(double a, double b, double c, double d, double e) => a + b + c + d + e;
+
+    /// <summary>求和（6 参数）。</summary>
+    [Description("求和（6 参数）")]
+    public static double Sum(double a, double b, double c, double d, double e, double f) => a + b + c + d + e + f;
 
     /// <summary>求平均。</summary>
     [Description("平均值：Average(1, 2, 3) = 2")]
@@ -117,13 +157,7 @@ public static class MathLibrary
             return 0d;
         }
 
-        double total = 0d;
-        for (int i = 0; i < values.Length; i++)
-        {
-            total += values[i];
-        }
-
-        return total / values.Length;
+        return CompensatedSum(values.AsSpan()) / values.Length;
     }
 
     /// <summary>连乘。</summary>
@@ -171,6 +205,7 @@ public static class MathLibrary
     {
         return Math.Cos(v);
     }
+    [Impure]
     public static DateTime Now()
     {
         return System.DateTime.Now;
@@ -288,6 +323,7 @@ public static class MathLibrary
     {
         return Math.Round((double)(value));
     }
+    [Impure]
     public static double RandomX(object valueMin, object valueMax)
     {
         Random r = new Random(Guid.NewGuid().GetHashCode());
@@ -424,5 +460,71 @@ public static class MathLibrary
             return -1000;
         }
         return -1000;
+    }
+
+    /// <summary>绝对值（decimal）。</summary>
+    [Description("绝对值（decimal）：Abs(-3.5m) = 3.5")]
+    public static decimal Abs(decimal value) => decimal.Abs(value);
+
+    /// <summary>四舍五入（decimal）。</summary>
+    [Description("四舍五入到指定小数位（decimal）")]
+    public static decimal Round(decimal value, int digits = 0) =>
+        decimal.Round(value, Math.Clamp(digits, 0, 28), MidpointRounding.AwayFromZero);
+
+    /// <summary>按步长四舍五入（decimal）。</summary>
+    [Description("按步长四舍五入（decimal）")]
+    public static decimal RoundTo(decimal value, decimal step) =>
+        step == 0m ? value : decimal.Round(value / step, 0, MidpointRounding.AwayFromZero) * step;
+
+    /// <summary>向下取整（decimal）。</summary>
+    [Description("向下取整（decimal）")]
+    public static decimal Floor(decimal value) => decimal.Floor(value);
+
+    /// <summary>向上取整（decimal）。</summary>
+    [Description("向上取整（decimal）")]
+    public static decimal Ceiling(decimal value) => decimal.Ceiling(value);
+
+    /// <summary>截断小数位（decimal）。</summary>
+    [Description("截断小数位（decimal）")]
+    public static decimal Truncate(decimal value, int digits = 0)
+    {
+        decimal factor = 1m;
+        for (int i = 0; i < Math.Clamp(digits, 0, 28); i++) factor *= 10m;
+        return decimal.Truncate(value * factor) / factor;
+    }
+
+    /// <summary>取较小值（decimal）。</summary>
+    [Description("取较小值（decimal）")]
+    public static decimal Min(decimal left, decimal right) => decimal.Min(left, right);
+
+    /// <summary>取较大值（decimal）。</summary>
+    [Description("取较大值（decimal）")]
+    public static decimal Max(decimal left, decimal right) => decimal.Max(left, right);
+
+    /// <summary>限幅（decimal）。</summary>
+    [Description("限幅（decimal）")]
+    public static decimal Clamp(decimal value, decimal min, decimal max) => decimal.Clamp(value, min, max);
+
+    /// <summary>符号（decimal）。</summary>
+    [Description("返回符号（decimal）")]
+    public static decimal Sign(decimal value) => decimal.Sign(value);
+
+    /// <summary>求和（decimal）。</summary>
+    [Description("求和（decimal）")]
+    public static decimal Sum(params decimal[] values)
+    {
+        decimal total = 0m;
+        foreach (decimal value in values) total += value;
+        return total;
+    }
+
+    /// <summary>平均值（decimal）。</summary>
+    [Description("平均值（decimal）")]
+    public static decimal Average(params decimal[] values)
+    {
+        if (values.Length == 0) return 0m;
+        decimal total = 0m;
+        foreach (decimal value in values) total += value;
+        return total / values.Length;
     }
 }

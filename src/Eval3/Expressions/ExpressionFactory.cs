@@ -14,6 +14,16 @@ internal static class ExpressionFactory
         switch (tokenType)
         {
             case TokenType.OperatorPlus:
+                if (IsIntegerOperation(left, right))
+                {
+                    return new BinaryExpression(left, Operators.LongAdd, right, source);
+                }
+
+                if (IsDecimalOperation(left, right))
+                {
+                    return new BinaryExpression(left, Operators.DecimalAdd, right, source);
+                }
+
                 if (left.EvalType == EvalType.Number && right.EvalType == EvalType.Number)
                 {
                     return new BinaryExpression(left, Operators.Add, right, source);
@@ -41,6 +51,16 @@ internal static class ExpressionFactory
                 break;
 
             case TokenType.OperatorMinus:
+                if (IsIntegerOperation(left, right))
+                {
+                    return new BinaryExpression(left, Operators.LongSubtract, right, source);
+                }
+
+                if (IsDecimalOperation(left, right))
+                {
+                    return new BinaryExpression(left, Operators.DecimalSubtract, right, source);
+                }
+
                 if (left.EvalType == EvalType.Number && right.EvalType == EvalType.Number)
                 {
                     return new BinaryExpression(left, Operators.Subtract, right, source);
@@ -59,6 +79,16 @@ internal static class ExpressionFactory
                 break;
 
             case TokenType.OperatorMul:
+                if (IsIntegerOperation(left, right))
+                {
+                    return new BinaryExpression(left, Operators.LongMultiply, right, source);
+                }
+
+                if (IsDecimalOperation(left, right))
+                {
+                    return new BinaryExpression(left, Operators.DecimalMultiply, right, source);
+                }
+
                 if (left.EvalType == EvalType.Number && right.EvalType == EvalType.Number)
                 {
                     return new BinaryExpression(left, Operators.Multiply, right, source);
@@ -67,6 +97,17 @@ internal static class ExpressionFactory
                 break;
 
             case TokenType.OperatorDiv:
+                if (IsIntegerOperation(left, right))
+                {
+                    // 整数除法返回 decimal（1/3 不丢成 0），避免与用户预期冲突。
+                    return new BinaryExpression(left, Operators.DecimalDivide, right, source);
+                }
+
+                if (IsDecimalOperation(left, right))
+                {
+                    return new BinaryExpression(left, Operators.DecimalDivide, right, source);
+                }
+
                 if (left.EvalType == EvalType.Number && right.EvalType == EvalType.Number)
                 {
                     return new BinaryExpression(left, Operators.Divide, right, source);
@@ -75,6 +116,16 @@ internal static class ExpressionFactory
                 break;
 
             case TokenType.OperatorPercent:
+                if (IsIntegerOperation(left, right))
+                {
+                    return new BinaryExpression(left, Operators.LongModulo, right, source);
+                }
+
+                if (IsDecimalOperation(left, right))
+                {
+                    return new BinaryExpression(left, Operators.DecimalModulo, right, source);
+                }
+
                 if (left.EvalType == EvalType.Number && right.EvalType == EvalType.Number)
                 {
                     return new BinaryExpression(left, Operators.Modulo, right, source);
@@ -111,6 +162,17 @@ internal static class ExpressionFactory
             $"运算符 {SymbolOf(tokenType)} 不能应用于 {left.EvalType} 和 {right.EvalType}",
             position);
     }
+
+    private static bool IsIntegerOperation(Expression left, Expression right) =>
+        left.EvalType == EvalType.Number
+        && right.EvalType == EvalType.Number
+        && left.SystemType == typeof(long)
+        && right.SystemType == typeof(long);
+
+    private static bool IsDecimalOperation(Expression left, Expression right) =>
+        left.EvalType == EvalType.Number
+        && right.EvalType == EvalType.Number
+        && (left.SystemType == typeof(decimal) || right.SystemType == typeof(decimal));
 
     public static Priority PriorityOf(TokenType tokenType) => tokenType switch
     {
@@ -173,6 +235,16 @@ internal static class ExpressionFactory
         if (left.EvalType == EvalType.Boolean && right.EvalType == EvalType.Boolean)
         {
             return Comparisons.Boolean;
+        }
+
+        if (left.SystemType == typeof(decimal) || right.SystemType == typeof(decimal))
+        {
+            return Comparisons.Decimal;
+        }
+
+        if (left.SystemType == typeof(long) && right.SystemType == typeof(long))
+        {
+            return Comparisons.Long;
         }
 
         return Comparisons.Text;

@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-
 namespace Eval3;
 
 /// <summary>
@@ -9,7 +7,10 @@ namespace Eval3;
 public sealed class Evaluator
 {
     private readonly List<object> _functions = [];
-    private readonly ConcurrentDictionary<string, CompiledFormula> _formulaCache = new(StringComparer.Ordinal);
+    private readonly FormulaCache _formulaCache;
+    private readonly ExpressionCache _parseCache;
+    private long _cacheHits;
+    private long _cacheMisses;
     private readonly MemberResolver _resolver = new();
 
     /// <summary>使用默认配置创建组件。</summary>
@@ -34,6 +35,8 @@ public sealed class Evaluator
         }
 
         Options = options;
+        _formulaCache = new FormulaCache(options.MaxCacheSize);
+        _parseCache = new ExpressionCache(options.MaxCacheSize);
     }
 
     /// <summary>组件配置。</summary>
@@ -50,6 +53,12 @@ public sealed class Evaluator
 
     /// <summary>已缓存的公式数量。</summary>
     public int CachedFormulaCount => _formulaCache.Count;
+
+    /// <summary>公式缓存命中次数。</summary>
+    public long CacheHits => Interlocked.Read(ref _cacheHits);
+
+    /// <summary>公式缓存未命中次数。</summary>
+    public long CacheMisses => Interlocked.Read(ref _cacheMisses);
 
     internal MemberResolver Resolver => _resolver;
 
@@ -83,11 +92,23 @@ public sealed class Evaluator
     /// <summary>清空已注册的函数库 / 变量容器。</summary>
     public void ClearEnvironmentFunctions() => _functions.Clear();
 
-    /// <summary>解析公式为表达式树（不经过缓存）。</summary>
+    /// <summary>解析公式为表达式树；启用 <see cref="EvaluatorOptions.EnableParseCache"/> 时复用不可变 AST。</summary>
     public Expression Parse(string? formula)
     {
-        var parser = new Parser(this, formula ?? string.Empty);
-        return parser.Parse();
+        string text = formula ?? string.Empty;
+        if (Options.EnableParseCache && _parseCache.TryGet(text, out Expression? cached))
+        {
+            return cached!;
+        }
+
+        var parser = new Parser(this, text);
+        Expression expression = parser.Parse();
+        if (Options.EnableParseCache)
+        {
+            _parseCache.Set(text, expression);
+        }
+
+        return expression;
     }
 
     /// <summary>解析并缓存公式，返回可复用的 <see cref="CompiledFormula"/>。</summary>
@@ -96,25 +117,26 @@ public sealed class Evaluator
         string text = formula ?? string.Empty;
         if (!Options.EnableFormulaCache)
         {
-            return new CompiledFormula(text, Parse(text));
+            return new CompiledFormula(text, Parse(text), Options.UseWholeTreeNumericCompiler);
         }
 
-        if (_formulaCache.TryGetValue(text, out CompiledFormula? cached))
+        if (_formulaCache.TryGet(text, out CompiledFormula? cached))
         {
-            return cached;
+            Interlocked.Increment(ref _cacheHits);
+            return cached!;
         }
 
-        var compiled = new CompiledFormula(text, Parse(text));
-        if (_formulaCache.Count >= Options.MaxCacheSize)
-        {
-            _formulaCache.Clear();
-        }
-
-        return _formulaCache.GetOrAdd(text, compiled);
+        Interlocked.Increment(ref _cacheMisses);
+        var compiled = new CompiledFormula(text, Parse(text), Options.UseWholeTreeNumericCompiler, Options.EnableJit);
+        _formulaCache.Set(text, compiled);
+        return compiled;
     }
 
     /// <summary>解析并求值。</summary>
     public object? Evaluate(string? formula) => Compile(formula).Evaluate();
+
+    /// <summary>解析并求值；失败时返回带出错节点信息的 <see cref="FormulaRuntimeException"/>。</summary>
+    public object? EvaluateWithDiagnostics(string? formula) => Compile(formula).EvaluateWithDiagnostics();
 
     /// <summary>解析并求值，结果按展示规则格式化。</summary>
     public string EvaluateToString(string? formula) => Compile(formula).EvaluateToString();
@@ -159,11 +181,17 @@ public sealed class Evaluator
     }
 
     /// <summary>清空公式缓存（变量静态类型变化后建议调用）。</summary>
-    public void ClearCache() => _formulaCache.Clear();
+    public void ClearCache()
+    {
+        _formulaCache.Clear();
+        _parseCache.Clear();
+        Interlocked.Exchange(ref _cacheHits, 0);
+        Interlocked.Exchange(ref _cacheMisses, 0);
+    }
 
     /// <summary>查询公式是否已在缓存中（界面可据此显示“缓存命中”）。</summary>
     public bool TryGetCachedFormula(string? formula, out CompiledFormula? compiled) =>
-        _formulaCache.TryGetValue(formula ?? string.Empty, out compiled);
+        _formulaCache.TryGet(formula ?? string.Empty, out compiled);
 
     /// <summary>格式化结果为展示字符串（等价于历史版本的 <c>Evaluator.ConvertToString</c>）。</summary>
     public static string ConvertToString(object? value) => ValueConvert.ConvertToString(value);

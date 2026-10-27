@@ -5,11 +5,62 @@
 
 * 计算内核：词法分析 → 递归下降语法分析 → 表达式树求值（**解析期完成类型推导与调用绑定**）
 * 目标框架：`net10.0`（类库）/ `net10.0-windows`（验算器）
-* 实测性能：变量公式 / 数值函数 **14～39 ns/次、零堆分配**，比旧的 `DataTable.Compute` 方案快 **约 94 倍**；
-  32 核并行吞吐 **3.8 亿次/秒**
+* 实测性能（2026-10 升级后，见 §0）：数值快路径 **1.0～5.9 ns/次、零堆分配**；文本模板 **66 ns / 168 B**；
+  24 核并行吞吐 **约 11.8 亿次/秒**；比旧的 `DataTable.Compute` 方案快 **约 1 500 倍**
 * 表达式树编译后端：**FastExpressionCompiler**（直接生成 IL），编译耗时约为 `Expression.Compile()` 的 **1/20 ~ 1/200**
 * 水蒸汽物性库：`Eval3.Thermo`（可选工程，纯托管 IAPWS-IF97，无原生依赖）
-* 单元测试：**163 个 xUnit 用例全部通过**
+* 单元测试：**183 个 xUnit 用例全部通过**
+
+---
+
+## 0. 2026-10-27 公式编译升级（当前版本）
+
+三轮升级：**整树数值/对象编译 → 安全 CSE / 惰性编译 / LRU → 日期、模板、decimal/整数模式、解析缓存**。
+
+| 能力 | 实现 | 效果 |
+|---|---|---|
+| 整树数值编译 | `Compilation/NumericPlan.cs` | 常量 18.0 → **1.0 ns**；变量 14.7 → **4.8 ns**；`Round` 18.9 → **5.9 ns** |
+| 对象路径整树编译 | `Compilation/ObjectPlan.cs` | 文本模板 **104 → 66 ns**，分配 **400 → 168 B（-58%）** |
+| 日期运算进整树 | `NumericPlan` / `ObjectPlan` | 日期差 **6.8 → 1.8 ns**、零分配；日期 ± 天数进入对象路径 |
+| 常量折叠 / 数值 `if` | `NumericPlan` | 全常量公式 0 次 IL；`if` **48 B → 0 B** |
+| 安全 CSE | `NumericPlan` + `[Pure]` | 重复子式 **33.8 → 4.7 ns**；纯函数重复 **17.6 → 3.9 ns** |
+| 列式批量 | `BatchFormula` | 1M 点 **0.4～2.5 ns/点**（逐点 4～5 ns） |
+| 解析缓存 | `Runtime/ExpressionCache.cs` | 同一公式重复解析 **21 ns / 0 B**（首次解析仍约 1 650 B） |
+| LRU 公式缓存 | `Runtime/FormulaCache.cs` | 不再整表清空；`CacheHits / CacheMisses` |
+| decimal / 整数模式 | `EvaluatorOptions.NumericMode` | 金额走 decimal（`Vat(100.00,0.13)=13.00`）；整数走 long，溢出提升 decimal |
+| 运行时诊断 | `EvaluateWithDiagnostics` | 异常带 `NodeSource / Position` |
+| AOT / 无 JIT | `EvaluatorOptions.EnableJit = false` | 全树遍历，无动态代码 |
+
+实测（`dotnet run --project src\Eval3.Benchmarks -c Release -- 400000`）：
+
+| 项目 | 旧路径 | 新路径 | 提升 |
+|---|---:|---:|---:|
+| 缓存公式 `EvaluateNumber`（常量） | 18.0 ns | **1.0 ns** | 18× |
+| 变量公式 `EvaluateNumber` | 14.7 ns | **4.8 ns** | 3.1× |
+| `Round` 函数 `EvaluateNumber` | 18.9 ns | **5.9 ns** | 3.2× |
+| `Sum(1..5)` `EvaluateNumber` | 5.9 ns | **3.1 ns** | 1.9× |
+| 字符串模板 `Evaluate` | 104.0 ns / 400 B | **66.0 ns / 168 B** | 1.6× / -58% 分配 |
+| 24 线程 `Round` 吞吐 | 553 M/s | **1.18 B/s** | 2.1× |
+| 解析 + 求值（首次，未缓存） | 699 ns / 1 648 B | 同左 | AST 节点主导，见 §4 |
+| 解析（同一公式，缓存命中） | 699 ns / 1 648 B | **21 ns / 0 B** | 33× / 0 分配 |
+
+新增/变更的公开配置：
+
+```csharp
+var options = new EvaluatorOptions
+{
+    UseWholeTreeNumericCompiler = true,  // 默认；false 回退旧的逐节点数值委托
+    EnableJit = true,                    // 默认；false 全树遍历（NativeAOT / iOS）
+    NumericMode = NumericMode.Double,    // Double / Decimal / Integer
+    EnableParseCache = true,             // 编辑器重复校验同一公式时复用 AST
+    MaxCacheSize = 2048,                 // LRU 容量（公式缓存与 AST 缓存共用）
+};
+
+var compiled = evaluator.Compile("Round(price * count, 2)");
+object? value = compiled.EvaluateWithDiagnostics();   // 失败时带出错节点
+```
+
+> 说明：下文 §3.3 的优化清单与 §4 的实测表是升级前基线；最新数据以本节为准。> 说明：下文 §3.3 的优化清单与 §4 的实测表是升级前基线；最新数据以本节为准。
 
 ---
 

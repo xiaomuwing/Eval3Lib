@@ -59,9 +59,41 @@ public sealed class VariableNotFoundException : EvalException
 public sealed class FormulaRuntimeException : EvalException
 {
     /// <summary>创建异常。</summary>
-    public FormulaRuntimeException(string formula, Exception innerException)
-        : base($"计算 \"{formula}\" 时出错：{innerException.Message}", innerException) => Formula = formula;
+    public FormulaRuntimeException(string formula, Exception innerException, Expression? node = null)
+        : base(BuildMessage(formula, node, innerException), innerException)
+    {
+        Formula = formula;
+        NodeSource = node?.Source;
+        NodeName = node?.Name;
+        if (!string.IsNullOrEmpty(NodeSource))
+        {
+            int position = formula.IndexOf(NodeSource, StringComparison.Ordinal);
+            if (position >= 0)
+            {
+                Position = position;
+                Length = NodeSource!.Length;
+            }
+        }
+    }
 
     /// <summary>出错的公式。</summary>
     public string Formula { get; }
+
+    /// <summary>出错节点的原文片段（可能为空）。</summary>
+    public string? NodeSource { get; }
+
+    /// <summary>出错节点名称（可能为空）。</summary>
+    public string? NodeName { get; }
+
+    /// <summary>出错节点在公式中的近似位置（-1 表示无法定位）。</summary>
+    public int Position { get; } = -1;
+
+    /// <summary>出错节点的近似长度。</summary>
+    public int Length { get; }
+
+    private static string BuildMessage(string formula, Expression? node, Exception innerException)
+    {
+        string where = node is null || node.Source.Length == 0 ? string.Empty : $"（在 `{node.Source}` 处）";
+        return $"计算 \"{formula}\" 时出错{where}：{innerException.Message}";
+    }
 }

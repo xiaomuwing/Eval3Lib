@@ -71,6 +71,24 @@ internal static class Program
             typeof(DateLibrary),
             typeof(FinanceLibrary));
 
+        // 解析基准专用：关闭 AST 缓存，测“真正的首次解析”分配。
+        var parseEngine = new Evaluator(new EvaluatorOptions { EnableParseCache = false });
+        parseEngine.AddEnvironmentFunctions(
+            variables,
+            typeof(MathLibrary),
+            typeof(TextLibrary),
+            typeof(DateLibrary),
+            typeof(FinanceLibrary));
+
+        // 旧路径：关闭整树编译，保留改造前的“逐节点委托 / 树遍历”行为，用于 A/B 对照。
+        var legacyEngine = new Evaluator(new EvaluatorOptions { UseWholeTreeNumericCompiler = false });
+        legacyEngine.AddEnvironmentFunctions(
+            variables,
+            typeof(MathLibrary),
+            typeof(TextLibrary),
+            typeof(DateLibrary),
+            typeof(FinanceLibrary));
+
         const string numericFormula = "(1 + 2 * 3 - 4 / 8) * 6 % 7 + 12.5";
         // DataTable.Compute 不支持 double 与 int 混合取模，旧方案只能用无 % 的等价公式
         const string dataTableFormula = "(1 + 2 * 3 - 4 / 8) * 6 + 12.5";
@@ -85,6 +103,12 @@ internal static class Program
         CompiledFormula paramsFunction = engine.Compile(paramsFunctionFormula);
         CompiledFormula text = engine.Compile(textFormula);
 
+        CompiledFormula legacyNumeric = legacyEngine.Compile(numericFormula);
+        CompiledFormula legacyVariable = legacyEngine.Compile(variableFormula);
+        CompiledFormula legacyFunction = legacyEngine.Compile(functionFormula);
+        CompiledFormula legacyParamsFunction = legacyEngine.Compile(paramsFunctionFormula);
+        CompiledFormula legacyText = legacyEngine.Compile(textFormula);
+
         var dataTable = new DataTable();
         double expected = engine.EvaluateNumber(dataTableFormula);
         double actual = Convert.ToDouble(dataTable.Compute(dataTableFormula, string.Empty), CultureInfo.InvariantCulture);
@@ -93,26 +117,36 @@ internal static class Program
 
         var results = new List<BenchmarkResult>
         {
-            Benchmark.Measure("Eval3 解析 + 求值（未缓存）", iterations / 4, () => engine.Parse(numericFormula).Evaluate()),
-            Benchmark.Measure("Eval3 缓存公式求值（装箱）", iterations, () => numeric.Evaluate()),
-            Benchmark.Measure("Eval3 数值快路径（免装箱）", iterations, () => numeric.EvaluateNumber()),
+            Benchmark.Measure("解析 + 求值（新路径，未缓存）", iterations / 4, () => parseEngine.Parse(numericFormula).Evaluate()),
+            Benchmark.Measure("缓存公式 Evaluate（新路径）", iterations, () => numeric.Evaluate()),
+            Benchmark.Measure("缓存公式 EvaluateNumber（新路径）", iterations, () => numeric.EvaluateNumber()),
+            Benchmark.Measure("缓存公式 Evaluate（旧路径）", iterations, () => legacyNumeric.Evaluate()),
+            Benchmark.Measure("缓存公式 EvaluateNumber（旧路径）", iterations, () => legacyNumeric.EvaluateNumber()),
             Benchmark.Measure("DataTable.Compute（旧 C# 方案）", iterations / 4, () => dataTable.Compute(dataTableFormula, string.Empty)),
 
-            // 同一公式的两种求值方式对照：Evaluate 始终逐节点求值（改动前的行为），
-            // EvaluateNumber 在有快路径时走编译后的免装箱委托。
-            Benchmark.Measure("变量公式：逐节点求值", iterations, () => variable.Evaluate()),
-            Benchmark.Measure("变量公式：数值快路径", iterations, () => variable.EvaluateNumber()),
-            Benchmark.Measure("函数调用 Round：逐节点求值", iterations, () => function.Evaluate()),
-            Benchmark.Measure("函数调用 Round：数值快路径", iterations, () => function.EvaluateNumber()),
-            Benchmark.Measure("函数调用 Sum：逐节点求值", iterations, () => paramsFunction.Evaluate()),
-            Benchmark.Measure("函数调用 Sum：数值快路径", iterations, () => paramsFunction.EvaluateNumber()),
+            Benchmark.Measure("变量公式：旧路径 Evaluate", iterations, () => legacyVariable.Evaluate()),
+            Benchmark.Measure("变量公式：新路径 Evaluate", iterations, () => variable.Evaluate()),
+            Benchmark.Measure("变量公式：旧路径 EvaluateNumber", iterations, () => legacyVariable.EvaluateNumber()),
+            Benchmark.Measure("变量公式：新路径 EvaluateNumber", iterations, () => variable.EvaluateNumber()),
 
-            Benchmark.Measure("字符串插值模板", iterations / 2, () => text.Evaluate()),
+            Benchmark.Measure("函数调用 Round：旧路径 Evaluate", iterations, () => legacyFunction.Evaluate()),
+            Benchmark.Measure("函数调用 Round：新路径 Evaluate", iterations, () => function.Evaluate()),
+            Benchmark.Measure("函数调用 Round：旧路径 EvaluateNumber", iterations, () => legacyFunction.EvaluateNumber()),
+            Benchmark.Measure("函数调用 Round：新路径 EvaluateNumber", iterations, () => function.EvaluateNumber()),
+
+            Benchmark.Measure("函数调用 Sum：旧路径 Evaluate", iterations, () => legacyParamsFunction.Evaluate()),
+            Benchmark.Measure("函数调用 Sum：新路径 Evaluate", iterations, () => paramsFunction.Evaluate()),
+            Benchmark.Measure("函数调用 Sum：旧路径 EvaluateNumber", iterations, () => legacyParamsFunction.EvaluateNumber()),
+            Benchmark.Measure("函数调用 Sum：新路径 EvaluateNumber", iterations, () => paramsFunction.EvaluateNumber()),
+
+            Benchmark.Measure("字符串插值模板：旧路径", iterations / 2, () => legacyText.Evaluate()),
+            Benchmark.Measure("字符串插值模板：新路径", iterations / 2, () => text.Evaluate()),
         };
 
         Print(results);
 
-        ParallelThroughput(engine, functionFormula, iterations);
+        ParallelThroughput(engine, legacyEngine, functionFormula, iterations);
+        return 0;
         return 0;
     }
 
@@ -129,22 +163,22 @@ internal static class Program
         }
     }
 
-    private static void ParallelThroughput(Evaluator engine, string formula, int iterations)
+    private static void ParallelThroughput(Evaluator engine, Evaluator legacyEngine, string formula, int iterations)
     {
         CompiledFormula compiled = engine.Compile(formula);
+        CompiledFormula legacy = legacyEngine.Compile(formula);
         int total = iterations * 4;
 
         Console.WriteLine();
         Console.WriteLine($"并行吞吐（{Environment.ProcessorCount} 核，公式：{formula}）");
-        Console.WriteLine("| 求值方式 | 迭代 | 每秒次数 | 相对数值快路径 |");
+        Console.WriteLine("| 求值方式 | 迭代 | 每秒次数 | 相对旧路径 |");
         Console.WriteLine("| --- | ---: | ---: | ---: |");
 
-        double tree = MeasureParallel(total, () => compiled.Evaluate());
-        double fast = MeasureParallel(total, () => compiled.EvaluateNumber());
+        double oldOps = MeasureParallel(total, () => legacy.EvaluateNumber());
+        double newOps = MeasureParallel(total, () => compiled.EvaluateNumber());
 
-        Console.WriteLine($"| 逐节点求值 | {total:N0} | {tree:N0} | {fast / tree:F2}× |");
-        Console.WriteLine($"| 数值快路径 | {total:N0} | {fast:N0} | 1.00× |");
-        _ = engine;
+        Console.WriteLine($"| 旧路径（逐节点委托） | {total:N0} | {oldOps:N0} | 1.00× |");
+        Console.WriteLine($"| 新路径（整树单 lambda） | {total:N0} | {newOps:N0} | {newOps / oldOps:F2}× |");
     }
 
     private static double MeasureParallel(int total, Action action)

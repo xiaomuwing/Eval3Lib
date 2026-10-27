@@ -5,6 +5,7 @@ namespace Eval3.Functions;
 
 /// <summary>文本函数库。</summary>
 [Description("文本函数库")]
+[Pure]
 public static class TextLibrary
 {
     /// <summary>转大写。</summary>
@@ -78,4 +79,9 @@ public static class TextLibrary
     /// <summary>拼接。</summary>
     [Description("拼接多个文本")]
     public static string Concat(params string[] values) => string.Concat(values);
+
+    /// <summary>按格式串格式化 decimal。</summary>
+    [Description("按格式串格式化 decimal：Format(1234.5m, \"#,##0.00\")")]
+    public static string Format(decimal value, string format) =>
+        value.ToString(format, CultureInfo.InvariantCulture);
 }

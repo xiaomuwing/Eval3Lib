@@ -22,8 +22,19 @@ public sealed class BinaryExpression : Expression
     /// <summary>运算符符号。</summary>
     public string Symbol => _operator.Symbol;
 
+    /// <summary>运算符实例（供整树数值编译使用）。</summary>
+    internal BinaryOperator Operator => _operator;
+
     /// <inheritdoc />
     public override EvalType EvalType => _operator.ResultType;
+
+    /// <inheritdoc />
+    public override Type SystemType => _operator switch
+    {
+        LongOperator => typeof(long),
+        DecimalOperator => typeof(decimal),
+        _ => base.SystemType,
+    };
 
     /// <inheritdoc />
     public override object? Evaluate() => _operator.Apply(Left.Evaluate(), Right.Evaluate());

@@ -25,6 +25,7 @@ internal sealed class Parser
     private readonly string _rootFormula;
     private readonly int _offset;
     private readonly Tokenizer _tokenizer;
+    private readonly Stack<List<Expression>> _parameterPool = new();
     private Token _current;
     private int _lastEnd;
 
@@ -90,6 +91,27 @@ internal sealed class Parser
         }
 
         throw Error($"无法把 {expression.Name} 转换为 {targetType}", position);
+    }
+
+    private Expression CreateNumberLiteral()
+    {
+        if (_evaluator.Options.NumericMode == NumericMode.Decimal)
+        {
+            return ConstantExpression.Decimal((decimal)_current.Number, SourceOf(_current));
+        }
+
+        if (_evaluator.Options.NumericMode == NumericMode.Integer
+            && _current.Length > 0
+            && long.TryParse(
+                _text.AsSpan(_current.Start, _current.Length),
+                System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out long integer))
+        {
+            return ConstantExpression.Integer(integer, SourceOf(_current));
+        }
+
+        return ConstantExpression.Number(_current.Number, SourceOf(_current));
     }
 
     private void NextToken()
@@ -171,7 +193,7 @@ internal sealed class Parser
                     break;
 
                 case TokenType.ValueNumber:
-                    valueLeft = ConstantExpression.Number(_current.Number, SourceOf(_current));
+                    valueLeft = CreateNumberLiteral();
                     NextToken();
                     break;
 
@@ -346,6 +368,8 @@ internal sealed class Parser
     {
         NextToken();
         List<Expression>? parameters = ParseParameters(out bool isBrackets);
+        try
+        {
         string source = Source(start);
 
         if (parameters is not null)
@@ -411,6 +435,26 @@ internal sealed class Parser
         }
 
         EmitCallFunction(ref valueLeft, identifier, null, CallType.All, errorIfNotFound: true, start);
+        }
+        finally
+        {
+            if (parameters is not null)
+            {
+                ReturnParameters(parameters);
+            }
+        }
+    }
+
+    private List<Expression>? RentParameters() =>
+        _parameterPool.Count > 0 ? _parameterPool.Pop() : new List<Expression>(4);
+
+    private void ReturnParameters(List<Expression> parameters)
+    {
+        if (parameters.Capacity <= 16)
+        {
+            parameters.Clear();
+            _parameterPool.Push(parameters);
+        }
     }
 
     private List<Expression>? ParseParameters(out bool brackets)
@@ -425,7 +469,7 @@ internal sealed class Parser
 
         brackets = isBracket;
         TokenType closing = isBracket ? TokenType.CloseBracket : TokenType.CloseParenthesis;
-        var parameters = new List<Expression>(4);
+        List<Expression> parameters = RentParameters();
         NextToken();
 
         while (true)
@@ -461,21 +505,31 @@ internal sealed class Parser
         int start = _current.Start;
         NextToken();
         List<Expression>? parameters = ParseParameters(out _);
-        if (parameters is null)
+        try
         {
-            throw Error("if 需要参数列表，例如 if(条件, 真值, 假值)", start);
-        }
+            if (parameters is null)
+            {
+                throw Error("if 需要参数列表，例如 if(条件, 真值, 假值)", start);
+            }
 
-        if (parameters.Count != 3)
+            if (parameters.Count != 3)
+            {
+                throw Error($"if 需要 3 个参数，实际 {parameters.Count} 个", start);
+            }
+
+            return new ConditionalExpression(
+                Convert(parameters[0], EvalType.Boolean, start),
+                parameters[1],
+                parameters[2],
+                Source(start));
+        }
+        finally
         {
-            throw Error($"if 需要 3 个参数，实际 {parameters.Count} 个", start);
+            if (parameters is not null)
+            {
+                ReturnParameters(parameters);
+            }
         }
-
-        return new ConditionalExpression(
-            Convert(parameters[0], EvalType.Boolean, start),
-            parameters[1],
-            parameters[2],
-            Source(start));
     }
 
     private bool EmitCallFunction(

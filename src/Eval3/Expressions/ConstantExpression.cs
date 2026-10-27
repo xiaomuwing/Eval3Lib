@@ -20,6 +20,12 @@ public sealed class ConstantExpression : Expression
     /// <summary>创建数值常量。</summary>
     public static ConstantExpression Number(double value, string source = "") => new(EvalType.Number, value, source);
 
+    /// <summary>创建整数常量（Integer 模式）。</summary>
+    public static ConstantExpression Integer(long value, string source = "") => new(EvalType.Number, value, source);
+
+    /// <summary>创建 decimal 数值常量（decimal 模式）。</summary>
+    public static ConstantExpression Decimal(decimal value, string source = "") => new(EvalType.Number, value, source);
+
     /// <summary>创建布尔常量。</summary>
     public static ConstantExpression Boolean(bool value, string source = "") => new(EvalType.Boolean, value, source);
 
@@ -36,8 +42,13 @@ public sealed class ConstantExpression : Expression
     public override EvalType EvalType => _evalType;
 
     /// <inheritdoc />
-    public override Type SystemType =>
-        _evalType == EvalType.Object ? _value?.GetType() ?? typeof(object) : base.SystemType;
+    public override Type SystemType => _evalType switch
+    {
+        EvalType.Object => _value?.GetType() ?? typeof(object),
+        EvalType.Number when _value is decimal => typeof(decimal),
+        EvalType.Number when _value is long => typeof(long),
+        _ => base.SystemType,
+    };
 
     /// <inheritdoc />
     public override object? Evaluate() => _value;

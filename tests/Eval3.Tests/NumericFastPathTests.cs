@@ -42,7 +42,7 @@ public class NumericFastPathTests
 
         Assert.True(compiled.HasNumericFastPath, $"{formula} 应走数值快路径");
 
-        // EvaluateNumber 走编译后的委托，Evaluate 始终逐节点求值，两者必须一致。
+        // EvaluateNumber 走编译后的委托，Evaluate 走整树编译（或回退树遍历），两者必须一致。
         double throughFastPath = compiled.EvaluateNumber();
         double throughTree = ValueConvert.AsDouble(compiled.Evaluate());
 
@@ -54,9 +54,7 @@ public class NumericFastPathTests
     [InlineData("1 < 2")]
     [InlineData("Upper(\"abc\")")]
     [InlineData("Format(1234.5, \"#,##0.00\")")]
-    [InlineData("if(1 < 2, 1, 2)")]
     [InlineData("\"合计：%[1 + 1]\"")]
-    [InlineData("#2024-01-02# - #2024-01-01#")]
     public void NonNumericFormulasStayOnTreePath(string formula)
     {
         CompiledFormula compiled = CreateEngine().Compile(formula);
@@ -64,9 +62,22 @@ public class NumericFastPathTests
         Assert.False(compiled.HasNumericFastPath, $"{formula} 不应走数值快路径");
     }
 
-    /// <summary>日期变量参与运算时语义与数值不同（相差天数），必须留在逐节点求值路径上。</summary>
+    /// <summary>整树数值编译器额外覆盖 <c>if(...)</c> 的数值分支，结果必须与树遍历一致。</summary>
+    [Theory]
+    [InlineData("if(1 < 2, 1, 2)")]
+    [InlineData("if(price > 10, price * 2, count + 1)")]
+    [InlineData("if(price > 10 and count > 1, Round(price, 1), Round(count, 1))")]
+    public void NumericIfUsesFastPath(string formula)
+    {
+        CompiledFormula compiled = CreateEngine().Compile(formula);
+
+        Assert.True(compiled.HasNumericFastPath, $"{formula} 应走数值快路径");
+        Assert.Equal(ValueConvert.AsDouble(compiled.Evaluate()), compiled.EvaluateNumber());
+    }
+
+    /// <summary>日期差（DateTime - DateTime = 天数）进入整树数值路径，结果与树遍历一致。</summary>
     [Fact]
-    public void DateVariablesStayOnTreePath()
+    public void DateDifferenceUsesFastPath()
     {
         var bag = new DictionaryVariableBag();
         bag.Set("from", new DateTime(2024, 1, 1));
@@ -76,8 +87,9 @@ public class NumericFastPathTests
         engine.AddEnvironmentFunctions(bag);
         CompiledFormula compiled = engine.Compile("to - from");
 
-        Assert.False(compiled.HasNumericFastPath);
+        Assert.True(compiled.HasNumericFastPath);
         Assert.Equal(10d, compiled.EvaluateNumber(), 10);
+        Assert.Equal(ValueConvert.AsDouble(compiled.Evaluate()), compiled.EvaluateNumber());
     }
 
     /// <summary>

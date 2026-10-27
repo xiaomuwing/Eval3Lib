@@ -90,6 +90,57 @@ public static class ValueConvert
         };
     }
 
+    /// <summary>转换为 64 位整数（Integer 模式）。</summary>
+    public static long ToInt64(object? value) => value switch
+    {
+        null => 0L,
+        long l => l,
+        int i => i,
+        short sh => sh,
+        byte by => by,
+        sbyte sb => sb,
+        ushort us => us,
+        uint ui => ui,
+        ulong ul => checked((long)ul),
+        double d => checked((long)Math.Round(d, MidpointRounding.AwayFromZero)),
+        decimal m => checked((long)decimal.Round(m, 0, MidpointRounding.AwayFromZero)),
+        string s => long.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture),
+        IConvertible c => c.ToInt64(CultureInfo.InvariantCulture),
+        _ => throw new InvalidCastException($"无法将 {value.GetType().Name} 转换为 long"),
+    };
+
+    /// <summary>转换为十进制数（decimal 模式与财务函数使用）。</summary>
+    public static decimal ToDecimal(object? value)
+    {
+        if (value is null)
+        {
+            return 0m;
+        }
+
+        if (value is decimal result)
+        {
+            return result;
+        }
+
+        return value switch
+        {
+            double d => (decimal)d,
+            float f => (decimal)f,
+            int i => i,
+            long l => l,
+            short sh => sh,
+            byte by => by,
+            uint ui => ui,
+            ulong ul => ul,
+            sbyte sb => sb,
+            ushort us => us,
+            bool b => b ? 1m : 0m,
+            string s => decimal.Parse(s, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture),
+            IConvertible c => c.ToDecimal(CultureInfo.InvariantCulture),
+            _ => throw new InvalidCastException($"无法将 {value.GetType().Name} 转换为 decimal"),
+        };
+    }
+
     /// <summary>热路径专用：值已是 <see cref="double"/> 时零分支返回。</summary>
     public static double AsDouble(object? value) => value is double d ? d : ToDouble(value);
 
@@ -121,7 +172,9 @@ public static class ValueConvert
                     ? date.ToString(CultureInfo.InvariantCulture)
                     : date.ToShortDateString();
             case decimal dec:
-                return FormatNumber((double)dec);
+                return dec.ToString("#,##0.00", CultureInfo.InvariantCulture);
+            case long integer:
+                return FormatInteger(integer);
             case double dbl:
                 return FormatNumber(dbl);
             case float flo:
@@ -140,9 +193,50 @@ public static class ValueConvert
             return value.ToString(CultureInfo.InvariantCulture);
         }
 
-        return value % 1 != 0
-            ? value.ToString("#,##0.00", CultureInfo.InvariantCulture)
-            : value.ToString("#,##0", CultureInfo.InvariantCulture);
+        // 整数走手写分组格式化：模板里最常见的 price*count / Round(...) 都是整数，
+        // 比 "#,##0" 自定义格式快约 2 倍，且输出逐字符一致（千分位分隔符）。
+        if (value % 1d == 0d && Math.Abs(value) < 9e15)
+        {
+            return FormatInteger((long)value);
+        }
+
+        Span<char> buffer = stackalloc char[64];
+        return value.TryFormat(buffer, out int written, "#,##0.00", CultureInfo.InvariantCulture)
+            ? new string(buffer[..written])
+            : value.ToString("#,##0.00", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatInteger(long value)
+    {
+        if (value == 0)
+        {
+            return "0";
+        }
+
+        bool negative = value < 0;
+        ulong magnitude = negative ? (ulong)(-(value + 1)) + 1UL : (ulong)value;
+        Span<char> buffer = stackalloc char[32];
+        int position = buffer.Length;
+        int digits = 0;
+
+        while (magnitude > 0)
+        {
+            if (digits > 0 && digits % 3 == 0)
+            {
+                buffer[--position] = ',';
+            }
+
+            buffer[--position] = (char)('0' + (int)(magnitude % 10));
+            magnitude /= 10;
+            digits++;
+        }
+
+        if (negative)
+        {
+            buffer[--position] = '-';
+        }
+
+        return new string(buffer[position..]);
     }
 
     /// <summary>按目标参数类型转换（供反射调用使用），类型已匹配时零开销返回。</summary>

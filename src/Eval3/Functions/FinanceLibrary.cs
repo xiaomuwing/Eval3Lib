@@ -4,6 +4,7 @@ namespace Eval3.Functions;
 
 /// <summary>财税 / 造价常用计算函数库。</summary>
 [Description("财税专业函数库")]
+[Pure]
 public static class FinanceLibrary
 {
     /// <summary>税额。</summary>
@@ -39,4 +40,25 @@ public static class FinanceLibrary
     [Description("直线法折旧：Depreciation(100000, 5000, 5) = 19000")]
     public static double Depreciation(double cost, double salvage, int life) =>
         life <= 0 ? 0d : (cost - salvage) / life;
+
+    /// <summary>税额（decimal）。</summary>
+    [Description("按税率计算税额（decimal）：Vat(100.00m, 0.13m) = 13.00")]
+    public static decimal Vat(decimal amount, decimal rate = 0.13m) => amount * rate;
+
+    /// <summary>价税合计（decimal）。</summary>
+    [Description("不含税价换算价税合计（decimal）")]
+    public static decimal GrossUp(decimal netAmount, decimal rate = 0.13m) => netAmount * (1m + rate);
+
+    /// <summary>不含税价（decimal）。</summary>
+    [Description("价税合计换算不含税价（decimal）")]
+    public static decimal NetOfTax(decimal grossAmount, decimal rate = 0.13m) => grossAmount / (1m + rate);
+
+    /// <summary>投资回报率（decimal）。</summary>
+    [Description("投资回报率（decimal）")]
+    public static decimal Roi(decimal gain, decimal cost) => cost == 0m ? 0m : (gain - cost) / cost;
+
+    /// <summary>直线法折旧（decimal）。</summary>
+    [Description("直线法折旧（decimal）")]
+    public static decimal Depreciation(decimal cost, decimal salvage, int life) =>
+        life > 0 ? (cost - salvage) / life : 0m;
 }
