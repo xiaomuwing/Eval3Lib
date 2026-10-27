@@ -31,7 +31,7 @@
 | 运行时诊断 | `EvaluateWithDiagnostics` | 异常带 `NodeSource / Position` |
 | AOT / 无 JIT | `EvaluatorOptions.EnableJit = false` | 全树遍历，无动态代码 |
 
-实测（`dotnet run --project src\Eval3.Benchmarks -c Release -- 400000`）：
+实测（`dotnet run --project src\Eval3.Benchmarks -c Release -- 400000`；完整报告见 [`docs/performance-2026-10.md`](docs/performance-2026-10.md)）：
 
 | 项目 | 旧路径 | 新路径 | 提升 |
 |---|---:|---:|---:|
